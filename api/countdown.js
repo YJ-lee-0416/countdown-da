@@ -53,10 +53,12 @@ export default function handler(req, res) {
   const target = phase === 'before' ? START : END;
   const diffSec = Math.max(0, Math.floor((target - now) / 1000));
 
-  const d = Math.floor(diffSec / 86400);
-  const h = Math.floor((diffSec % 86400) / 3600);
-  const m = Math.floor((diffSec % 3600) / 60);
-  const s = diffSec % 60;
+  // 초 단위 표기를 없애는 대신, 전체를 "분" 단위로 반올림한 뒤
+  // 일/시간/분으로 재환산하여 59→60분, 23→24시간 같은 반올림 오류를 방지함
+  const totalMinutes = Math.round(diffSec / 60);
+  const d = Math.floor(totalMinutes / 1440);
+  const h = Math.floor((totalMinutes % 1440) / 60);
+  const m = totalMinutes % 60;
 
   const subText = phase === 'before'
     ? '스크랩하고 특가 알림 받아보세요!'
@@ -69,7 +71,6 @@ export default function handler(req, res) {
     [pad(d), '일'],
     [pad(h), '시간'],
     [pad(m), '분'],
-    [pad(s), '초'],
   ];
 
   // 레이아웃 계산 (원본 CSS 비율을 780px 고정폭 기준으로 환산)
