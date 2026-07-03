@@ -98,8 +98,8 @@ export default function handler(req, res) {
       <rect x="0.5" y="0.5" width="779" height="179" rx="14" fill="#ffffff" stroke="#e7ebef"/>
       <text x="390" y="38" font-family="sans-serif" font-size="16" font-weight="600" fill="#8a94a0" text-anchor="middle">${escapeXml(subText)}</text>
       <text x="390" y="66" font-family="sans-serif" font-size="22" font-weight="700" text-anchor="middle">
-        <tspan fill="#2196f3">단 하루!</tspan>
-        <tspan fill="#111111"> ${escapeXml(headText)}</tspan>
+        <tspan fill="#111111">단 하루!</tspan>
+        <tspan fill="#2196f3"> ${escapeXml(headText)}</tspan>
       </text>
       ${boxesSvg}
     </svg>
