@@ -21,8 +21,8 @@
    글꼴 디테일에는 차이가 있을 수 있음
 */
 
-const START = new Date('2026-07-16T15:00:00+09:00');
-const END = new Date('2026-07-17T23:59:00+09:00');
+const START = new Date('2026-07-17T00:00:00+09:00');
+const END = new Date('2026-07-18T00:00:00+09:00'); // 7월 17일 24시 = 7월 18일 00시
 
 function pad(n) {
   return String(Math.max(0, n)).padStart(2, '0');
