@@ -38,6 +38,13 @@ export default function handler(req, res) {
   // (이전 코드는 "한국시간 문자열"을 다시 UTC로 잘못 해석해 9시간 오차가 발생했던 버그였음)
   const now = new Date();
 
+  // 모바일 여부 판별: <img> 태그는 정적 파일이라 실제 화면 폭을 직접 알 수 없으므로,
+  // 요청 기기의 User-Agent로 모바일 여부를 추정해 폰트/박스 비율을 다르게 적용함.
+  // (SVG는 벡터라 화면 폭에 맞춰 전체가 비율대로 줄어드는데, 이 비율 축소 시
+  //  글자도 같이 작아져 모바일에서 가독성이 떨어지는 문제를 방지하기 위함)
+  const userAgent = req.headers['user-agent'] || '';
+  const isMobile = /iphone|ipad|ipod|android|mobile/i.test(userAgent);
+
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
 
   // 행사 종료 후: 1x1 투명 이미지를 반환하여 배너를 사실상 숨김 처리
@@ -74,31 +81,37 @@ export default function handler(req, res) {
     [pad(m), '분'],
   ];
 
-  // 레이아웃 계산 (원본 CSS 비율을 780px 고정폭 기준으로 환산)
-  const boxSize = 64;
-  const gap = 12;
-  const totalBoxWidth = units.length * boxSize + (units.length - 1) * gap;
-  const startX = (780 - totalBoxWidth) / 2;
-  const boxY = 92;
+  // 캔버스 폭(780)은 PC/모바일 공통으로 유지하되, 모바일에서는 화면 폭에 맞춰
+  // 축소될 때 텍스트가 함께 너무 작아지지 않도록 폰트·박스 크기 자체를 키운
+  // 별도 비율(원본 CSS의 clamp() 상한값에 해당)을 적용함
+  const canvasWidth = 780;
+  const sizes = isMobile
+    ? { subFont: 20, headFont: 26, boxSize: 76, valFont: 32, lblFont: 12.5, colonFont: 26, canvasHeight: 210 }
+    : { subFont: 16, headFont: 22, boxSize: 64, valFont: 26, lblFont: 11, colonFont: 22, canvasHeight: 180 };
+
+  const gap = isMobile ? 14 : 12;
+  const totalBoxWidth = units.length * sizes.boxSize + (units.length - 1) * gap;
+  const startX = (canvasWidth - totalBoxWidth) / 2;
+  const boxY = isMobile ? 106 : 92;
 
   const boxesSvg = units.map((unit, i) => {
-    const x = startX + i * (boxSize + gap);
+    const x = startX + i * (sizes.boxSize + gap);
     const colon = i < units.length - 1
-      ? `<text x="${x + boxSize + gap / 2}" y="${boxY + boxSize / 2 + 8}" font-family="sans-serif" font-size="22" font-weight="700" fill="#c3cbd3" text-anchor="middle">:</text>`
+      ? `<text x="${x + sizes.boxSize + gap / 2}" y="${boxY + sizes.boxSize / 2 + 8}" font-family="sans-serif" font-size="${sizes.colonFont}" font-weight="700" fill="#c3cbd3" text-anchor="middle">:</text>`
       : '';
     return `
-      <rect x="${x}" y="${boxY}" width="${boxSize}" height="${boxSize}" rx="10" fill="#2196f3"/>
-      <text x="${x + boxSize / 2}" y="${boxY + 34}" font-family="sans-serif" font-size="26" font-weight="700" fill="#ffffff" text-anchor="middle">${unit[0]}</text>
-      <text x="${x + boxSize / 2}" y="${boxY + 52}" font-family="sans-serif" font-size="11" font-weight="600" fill="rgba(255,255,255,0.85)" text-anchor="middle">${unit[1]}</text>
+      <rect x="${x}" y="${boxY}" width="${sizes.boxSize}" height="${sizes.boxSize}" rx="10" fill="#2196f3"/>
+      <text x="${x + sizes.boxSize / 2}" y="${boxY + sizes.boxSize / 2 + sizes.valFont * 0.35}" font-family="sans-serif" font-size="${sizes.valFont}" font-weight="700" fill="#ffffff" text-anchor="middle">${unit[0]}</text>
+      <text x="${x + sizes.boxSize / 2}" y="${boxY + sizes.boxSize - 8}" font-family="sans-serif" font-size="${sizes.lblFont}" font-weight="600" fill="rgba(255,255,255,0.85)" text-anchor="middle">${unit[1]}</text>
       ${colon}
     `;
   }).join('');
 
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="780" height="180" viewBox="0 0 780 180">
-      <rect x="0.5" y="0.5" width="779" height="179" rx="14" fill="#ffffff" stroke="#e7ebef"/>
-      <text x="390" y="38" font-family="sans-serif" font-size="16" font-weight="600" fill="#8a94a0" text-anchor="middle">${escapeXml(subText)}</text>
-      <text x="390" y="66" font-family="sans-serif" font-size="22" font-weight="700" text-anchor="middle">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${sizes.canvasHeight}" viewBox="0 0 ${canvasWidth} ${sizes.canvasHeight}">
+      <rect x="0.5" y="0.5" width="${canvasWidth - 1}" height="${sizes.canvasHeight - 1}" rx="14" fill="#ffffff" stroke="#e7ebef"/>
+      <text x="${canvasWidth / 2}" y="${isMobile ? 44 : 38}" font-family="sans-serif" font-size="${sizes.subFont}" font-weight="600" fill="#8a94a0" text-anchor="middle">${escapeXml(subText)}</text>
+      <text x="${canvasWidth / 2}" y="${isMobile ? 78 : 66}" font-family="sans-serif" font-size="${sizes.headFont}" font-weight="700" text-anchor="middle">
         <tspan fill="#111111">단 하루!</tspan>
         <tspan fill="#2196f3"> ${escapeXml(headText)}</tspan>
       </text>
