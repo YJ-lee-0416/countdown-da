@@ -33,9 +33,10 @@ function escapeXml(str) {
 }
 
 export default function handler(req, res) {
-  const now = new Date(
-    new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' })
-  );
+  // 참고: Date 객체는 내부적으로 항상 UTC 절대시각을 저장하므로,
+  // START/END처럼 +09:00을 명시한 값과 직접 비교하면 별도의 시간대 변환이 필요 없음.
+  // (이전 코드는 "한국시간 문자열"을 다시 UTC로 잘못 해석해 9시간 오차가 발생했던 버그였음)
+  const now = new Date();
 
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
 
