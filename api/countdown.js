@@ -12,13 +12,18 @@
   않음 (오늘의집 편집기가 스크립트 실행을 차단하는 구조적 한계로 인해
   불가피함 — 별도 안내 참고)
 
-원본 배너(Special_Deal_Countdown_Banner_Embed_MIN.html)의 디자인 규격을
-그대로 재현함: 흰 배경, 테두리, 모서리 14px, 파란색(#2196f3) 타이머 박스,
-회색(#8a94a0) 부제목, 파란색 강조("단 하루!") 헤드 문구
+[반응형 개선 로직 - 핵심]
+이전 버전은 SVG 캔버스를 항상 780px 고정폭으로 그리고, 그 안에 실제 텍스트/박스보다
+훨씬 넓은 좌우 여백을 두었음. <img> 태그는 style="width:100%;max-width:780px"로 렌더링되므로,
+브라우저는 이 SVG를 "화면에 표시되는 폭"에 맞게 통째로 확대·축소함. 이때 불필요한 여백까지
+포함해 780px 기준으로 축소·확대가 이뤄지다 보니, 실제 텍스트·박스가 차지하는 시각적 크기는
+PC에서도 다소 작고 모바일에서는 더욱 작아지는 문제가 있었음.
 
-※ 폰트 제약: SVG는 외부 CDN 폰트(Pretendard)를 안정적으로 로드하지
-   못하는 환경이 많아 시스템 기본 sans-serif로 대체함. 원본 대비
-   글꼴 디테일에는 차이가 있을 수 있음
+이번 버전은 캔버스 폭 자체를 "실제 콘텐츠(텍스트/타이머 박스)가 필요로 하는 최소 폭 + 여백"
+수준으로 타이트하게 줄임. 그 결과 이미지의 원본 가로세로 비율이 콘텐츠에 맞게 좁아지고,
+<img>가 style에 따라 최대 780px까지 확대되어 표시될 때 실제 콘텐츠가 차지하는 시각적 크기가
+전보다 커짐. 이는 기기(User-Agent) 판별 없이도 PC·모바일 모두에서 동일한 원리로 자연스럽게
+더 크게 보이는 순수 반응형(CSS 확대·축소) 방식임.
 */
 
 const START = new Date('2026-07-17T00:00:00+09:00');
@@ -32,18 +37,16 @@ function escapeXml(str) {
   return str.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 }
 
+// 한글/영문 혼용 텍스트의 대략적인 폭을 추정 (SVG 서버 렌더링 환경에는
+// 실제 폰트 메트릭 측정 API가 없어, 문자 1개당 font-size의 약 1.05배로 근사함)
+function estimateTextWidth(text, fontSize) {
+  return text.length * fontSize * 1.05;
+}
+
 export default function handler(req, res) {
   // 참고: Date 객체는 내부적으로 항상 UTC 절대시각을 저장하므로,
   // START/END처럼 +09:00을 명시한 값과 직접 비교하면 별도의 시간대 변환이 필요 없음.
-  // (이전 코드는 "한국시간 문자열"을 다시 UTC로 잘못 해석해 9시간 오차가 발생했던 버그였음)
   const now = new Date();
-
-  // 모바일 여부 판별: <img> 태그는 정적 파일이라 실제 화면 폭을 직접 알 수 없으므로,
-  // 요청 기기의 User-Agent로 모바일 여부를 추정해 폰트/박스 비율을 다르게 적용함.
-  // (SVG는 벡터라 화면 폭에 맞춰 전체가 비율대로 줄어드는데, 이 비율 축소 시
-  //  글자도 같이 작아져 모바일에서 가독성이 떨어지는 문제를 방지하기 위함)
-  const userAgent = req.headers['user-agent'] || '';
-  const isMobile = /iphone|ipad|ipod|android|mobile/i.test(userAgent);
 
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
 
@@ -81,37 +84,48 @@ export default function handler(req, res) {
     [pad(m), '분'],
   ];
 
-  // 캔버스 폭(780)은 PC/모바일 공통으로 유지하되, 모바일에서는 화면 폭에 맞춰
-  // 축소될 때 텍스트가 함께 너무 작아지지 않도록 폰트·박스 크기 자체를 키운
-  // 별도 비율(원본 CSS의 clamp() 상한값에 해당)을 적용함
-  const canvasWidth = 780;
-  const sizes = isMobile
-    ? { subFont: 20, headFont: 26, boxSize: 76, valFont: 32, lblFont: 12.5, colonFont: 26, canvasHeight: 210 }
-    : { subFont: 16, headFont: 22, boxSize: 64, valFont: 26, lblFont: 11, colonFont: 22, canvasHeight: 180 };
+  // ── 디자인 규격 (기존 대비 확대) ──
+  const subFont = 20;
+  const headFont = 27;
+  const boxSize = 78;
+  const gap = 16;
+  const valFont = 33;
+  const lblFont = 13;
+  const colonFont = 27;
+  const sidePadding = 36; // 카드 좌우 최소 여백
 
-  const gap = isMobile ? 14 : 12;
-  const totalBoxWidth = units.length * sizes.boxSize + (units.length - 1) * gap;
-  const startX = (canvasWidth - totalBoxWidth) / 2;
-  const boxY = isMobile ? 106 : 92;
+  // 콘텐츠 폭 계산: 헤드 문구("단 하루! " + headText), 부제목, 박스 행 중 가장 넓은 값 기준
+  const headFullText = `단 하루! ${headText}`;
+  const headWidth = estimateTextWidth(headFullText, headFont);
+  const subWidth = estimateTextWidth(subText, subFont);
+  const boxRowWidth = units.length * boxSize + (units.length - 1) * gap;
+
+  const contentWidth = Math.max(headWidth, subWidth, boxRowWidth);
+  const canvasWidth = Math.round(contentWidth + sidePadding * 2);
+
+  const boxY = 96;
+  const canvasHeight = boxY + boxSize + 24;
+
+  const startX = (canvasWidth - boxRowWidth) / 2;
 
   const boxesSvg = units.map((unit, i) => {
-    const x = startX + i * (sizes.boxSize + gap);
+    const x = startX + i * (boxSize + gap);
     const colon = i < units.length - 1
-      ? `<text x="${x + sizes.boxSize + gap / 2}" y="${boxY + sizes.boxSize / 2 + 8}" font-family="sans-serif" font-size="${sizes.colonFont}" font-weight="700" fill="#c3cbd3" text-anchor="middle">:</text>`
+      ? `<text x="${x + boxSize + gap / 2}" y="${boxY + boxSize / 2 + 8}" font-family="sans-serif" font-size="${colonFont}" font-weight="700" fill="#c3cbd3" text-anchor="middle">:</text>`
       : '';
     return `
-      <rect x="${x}" y="${boxY}" width="${sizes.boxSize}" height="${sizes.boxSize}" rx="10" fill="#2196f3"/>
-      <text x="${x + sizes.boxSize / 2}" y="${boxY + sizes.boxSize / 2 + sizes.valFont * 0.35}" font-family="sans-serif" font-size="${sizes.valFont}" font-weight="700" fill="#ffffff" text-anchor="middle">${unit[0]}</text>
-      <text x="${x + sizes.boxSize / 2}" y="${boxY + sizes.boxSize - 8}" font-family="sans-serif" font-size="${sizes.lblFont}" font-weight="600" fill="rgba(255,255,255,0.85)" text-anchor="middle">${unit[1]}</text>
+      <rect x="${x}" y="${boxY}" width="${boxSize}" height="${boxSize}" rx="10" fill="#2196f3"/>
+      <text x="${x + boxSize / 2}" y="${boxY + boxSize / 2 + valFont * 0.35}" font-family="sans-serif" font-size="${valFont}" font-weight="700" fill="#ffffff" text-anchor="middle">${unit[0]}</text>
+      <text x="${x + boxSize / 2}" y="${boxY + boxSize - 8}" font-family="sans-serif" font-size="${lblFont}" font-weight="600" fill="rgba(255,255,255,0.85)" text-anchor="middle">${unit[1]}</text>
       ${colon}
     `;
   }).join('');
 
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${sizes.canvasHeight}" viewBox="0 0 ${canvasWidth} ${sizes.canvasHeight}">
-      <rect x="0.5" y="0.5" width="${canvasWidth - 1}" height="${sizes.canvasHeight - 1}" rx="14" fill="#ffffff" stroke="#e7ebef"/>
-      <text x="${canvasWidth / 2}" y="${isMobile ? 44 : 38}" font-family="sans-serif" font-size="${sizes.subFont}" font-weight="600" fill="#8a94a0" text-anchor="middle">${escapeXml(subText)}</text>
-      <text x="${canvasWidth / 2}" y="${isMobile ? 78 : 66}" font-family="sans-serif" font-size="${sizes.headFont}" font-weight="700" text-anchor="middle">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}">
+      <rect x="0.5" y="0.5" width="${canvasWidth - 1}" height="${canvasHeight - 1}" rx="14" fill="#ffffff" stroke="#e7ebef"/>
+      <text x="${canvasWidth / 2}" y="40" font-family="sans-serif" font-size="${subFont}" font-weight="600" fill="#8a94a0" text-anchor="middle">${escapeXml(subText)}</text>
+      <text x="${canvasWidth / 2}" y="72" font-family="sans-serif" font-size="${headFont}" font-weight="700" text-anchor="middle">
         <tspan fill="#111111">단 하루!</tspan>
         <tspan fill="#2196f3"> ${escapeXml(headText)}</tspan>
       </text>
